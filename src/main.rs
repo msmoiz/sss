@@ -4,6 +4,7 @@ fn main() {
 
     println!("{}", naive::contains(pattern, text));
     println!("{}", rabin_karp::contains(pattern, text));
+    println!("{}", boyer_moore::contains(pattern, text));
 }
 
 #[cfg(test)]
@@ -43,6 +44,11 @@ mod test {
     #[test]
     fn rabin_karp() {
         test_matcher(super::rabin_karp::contains);
+    }
+
+    #[test]
+    fn boyer_moore() {
+        test_matcher(super::boyer_moore::contains);
     }
 }
 
@@ -200,25 +206,134 @@ mod rabin_karp {
         }
         true
     }
+}
 
-    #[test]
-    fn match_at_start() {
-        let pattern = "abc";
-        let text = "abcdefg";
-        assert!(contains(pattern, text));
+mod boyer_moore {
+    use std::{cmp::max, collections::HashMap};
+
+    /// Boyer-Moore string search starts comparison from the back of the pattern
+    /// and uses heuristics to jump several characters at a time for each
+    /// mismatch. It preprocesses the pattern using two rules to determine how
+    /// much to shift based on the length of the match before failure: the
+    /// bad-character rule and the good-suffix rule.
+    ///
+    /// The bad-character rule focuses on the character in the text that failed
+    /// to match. If it is not present in the pattern, then we can skip the full
+    /// pattern length (since the match must occur after that character has been
+    /// passed). If it is present in the pattern to the left of the mismatched
+    /// position, then we can align the text occurrence and the pattern
+    /// occurrence. This page has a good explanation of the bad-character rule:
+    /// https://hyperskill.org/learn/step/35869.
+    ///
+    /// The good-suffix rule focuses on the characters that are matched. If that
+    /// suffix repeats itself in the pattern, then we can align the repetition
+    /// with the text. We do this only when the repetition is at the beginning
+    /// of the pattern or when the character preceding the repetition is not the
+    /// same as the character that precedes the suffix (otherwise, the shift
+    /// would fail again for the same reason). If the suffix does not repeat
+    /// itself in the pattern, then we look for the longest suffix of the suffix
+    /// that is also a prefix of the pattern and align on the prefix. If neither
+    /// rule matches, we skip the full pattern length (since the suffix will not
+    /// be found in the rest of the pattern). This page has a good explanation
+    /// of the good-suffix rule: https://hyperskill.org/learn/step/36987.
+    ///
+    /// The resulting algorithm runs in linear time in the average case, though
+    /// it can decay to quadratic time as O(mn).
+    pub fn contains(pattern: &str, text: &str) -> bool {
+        let pattern: Vec<char> = pattern.chars().collect();
+        let text: Vec<char> = text.chars().collect();
+
+        if pattern.is_empty() {
+            return true;
+        }
+
+        if text.is_empty() || text.len() < pattern.len() {
+            return false;
+        }
+
+        let bad_character_table = bad_character_table(&pattern);
+        let good_suffix_table = good_suffix_table(&pattern);
+
+        let mut i = pattern.len() - 1;
+
+        while i < text.len() {
+            let mut j = pattern.len() - 1;
+            while j != 0 && text[i] == pattern[j] {
+                i -= 1;
+                j -= 1;
+            }
+
+            if j == 0 {
+                return true;
+            }
+
+            let bad_char_shift = *bad_character_table.get(&text[i]).unwrap_or(&pattern.len());
+            let good_suffix_shift = good_suffix_table[pattern.len() - j - 1];
+            i += max(bad_char_shift, good_suffix_shift);
+        }
+
+        false
+    }
+
+    fn bad_character_table(pattern: &[char]) -> HashMap<char, usize> {
+        let mut table = HashMap::new();
+        for i in 1..pattern.len() {
+            table.insert(pattern[i], pattern.len() - i - 1);
+        }
+        table
+    }
+
+    fn good_suffix_table(pattern: &[char]) -> Vec<usize> {
+        let mut table = vec![1]; // shift 1 if no matched suffix
+
+        for suffix_len in 1..pattern.len() {
+            let suffix = &pattern[pattern.len() - suffix_len..];
+            let mismatch = pattern[pattern.len() - suffix_len - 1];
+            let remainder = &pattern[..pattern.len() - 1];
+
+            table.push(pattern.len());
+
+            let mut found_full_suffix = false;
+
+            // try to find next occurrence of full suffix
+            for pos in 0..remainder.len() - suffix.len() + 1 {
+                if &remainder[pos..pos + suffix_len] == suffix {
+                    if pos == 0 || remainder[pos - 1] != mismatch {
+                        table[suffix_len] = pattern.len() - pos;
+                        found_full_suffix = true;
+                    }
+                }
+            }
+
+            if found_full_suffix {
+                continue;
+            }
+
+            // try to find longest partial suffix that matches prefix
+            for par_suffix_len in (1..suffix_len).rev() {
+                let prefix = &pattern[..par_suffix_len];
+                let par_suffix = &pattern[pattern.len() - par_suffix_len..];
+                if prefix == par_suffix {
+                    table[suffix_len] = pattern.len() - par_suffix_len + suffix_len;
+                    break;
+                }
+            }
+        }
+
+        table
     }
 
     #[test]
-    fn match_elsewhere() {
-        let pattern = "abc";
-        let text = "defgabc";
-        assert!(contains(pattern, text));
+    fn bad_character_table_correct() {
+        let pattern: Vec<char> = "abac".chars().collect();
+        let table = bad_character_table(&pattern);
+        assert_eq!(table, HashMap::from([('a', 1), ('b', 2), ('c', 0)]));
     }
 
     #[test]
-    fn reject_not_present() {
-        let pattern = "abc";
-        let text = "abdefg";
-        assert!(!contains(pattern, text));
+    fn good_suffix_table_correct() {
+        let pattern: Vec<char> = "bcacbcbc".chars().collect();
+        let table = good_suffix_table(&pattern);
+        assert_eq!(table, vec![1, 5, 8, 5, 10, 11, 12, 13]);
     }
 }
