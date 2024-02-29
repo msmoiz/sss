@@ -5,6 +5,7 @@ fn main() {
     println!("{}", naive::contains(pattern, text));
     println!("{}", rabin_karp::contains(pattern, text));
     println!("{}", boyer_moore::contains(pattern, text));
+    println!("{}", knuth_morris_pratt::contains(pattern, text));
 }
 
 #[cfg(test)]
@@ -49,6 +50,11 @@ mod test {
     #[test]
     fn boyer_moore() {
         test_matcher(super::boyer_moore::contains);
+    }
+
+    #[test]
+    fn knuth_morris_pratt() {
+        test_matcher(super::knuth_morris_pratt::contains);
     }
 }
 
@@ -335,5 +341,80 @@ mod boyer_moore {
         let pattern: Vec<char> = "bcacbcbc".chars().collect();
         let table = good_suffix_table(&pattern);
         assert_eq!(table, vec![1, 5, 8, 5, 10, 11, 12, 13]);
+    }
+}
+
+mod knuth_morris_pratt {
+    /// Knuth-Morris-Pratt string search achieves linear time complexity by
+    /// preprocessing the pattern to determine how much of the pattern to
+    /// reevalaute once a mismatch is found. The text cursor only moves forward,
+    /// meaning each text character is only evaluated once.
+    ///
+    /// The partial match table specifies the amount to backtrack the pattern
+    /// cursor. If the backtrack value is -1, we do not backtrack at all but
+    /// instead advance both cursors. If the backtrack value is positive, set
+    /// the pattern cursor to the backtrack value. The Wikipedia page for the
+    /// algorithm has a useful reference implementation:
+    /// https://en.wikipedia.org/wiki/Knuth%E2%80%93Morris%E2%80%93Pratt_algorithm.
+    pub fn contains(pattern: &str, text: &str) -> bool {
+        let pattern: Vec<char> = pattern.chars().collect();
+        let text: Vec<char> = text.chars().collect();
+
+        if pattern.is_empty() {
+            return true;
+        }
+
+        if text.is_empty() || text.len() < pattern.len() {
+            return false;
+        }
+
+        let partial_match_table = partial_match_table(&pattern);
+
+        let mut i = 0;
+        let mut j = 0;
+        while i < text.len() {
+            if text[i] == pattern[j] {
+                i += 1;
+                j += 1;
+
+                if j == pattern.len() {
+                    return true;
+                }
+            } else {
+                let k = partial_match_table[j];
+                if k < 0 {
+                    i += 1;
+                    j = (k + 1) as usize;
+                } else {
+                    j = k as usize;
+                }
+            }
+        }
+
+        false
+    }
+
+    fn partial_match_table(pattern: &[char]) -> Vec<isize> {
+        let mut table = vec![-1]; // no shift if there is no match
+        let mut cnd = 0;
+        for i in 1..pattern.len() {
+            if pattern[i] == pattern[cnd as usize] {
+                table.push(table[cnd as usize]);
+            } else {
+                table.push(cnd);
+                while cnd >= 0 && pattern[i] != pattern[cnd as usize] {
+                    cnd = table[cnd as usize];
+                }
+            }
+            cnd += 1;
+        }
+        table
+    }
+
+    #[test]
+    fn partial_match_table_correct() {
+        let pattern: Vec<char> = "abcdabd".chars().collect();
+        let table = partial_match_table(&pattern);
+        assert_eq!(table, vec![-1, 0, 0, 0, -1, 0, 2]);
     }
 }
