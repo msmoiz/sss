@@ -1,3 +1,5 @@
+mod index;
+
 fn main() {
     let pattern = "abc";
     let text = "abcdefg";
