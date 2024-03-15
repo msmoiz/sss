@@ -1,4 +1,5 @@
 mod index;
+mod trie;
 
 fn main() {
     let pattern = "abc";
